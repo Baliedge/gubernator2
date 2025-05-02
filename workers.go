@@ -201,7 +201,6 @@ func (p *WorkerPool) dispatch(worker *Worker) {
 				logrus.Error("workerPool worker stopped because channel closed")
 				return
 			}
-
 			resp := new(response)
 			resp.rl, resp.err = worker.handleGetRateLimit(req.ctx, req.request, req.reqState, worker.cache)
 			select {
@@ -262,7 +261,7 @@ func (p *WorkerPool) dispatch(worker *Worker) {
 }
 
 // GetRateLimit sends a GetRateLimit request to worker pool.
-func (p *WorkerPool) GetRateLimit(ctx context.Context, rlRequest *RateLimitReq, reqState RateLimitReqState) (*RateLimitResp, error) {
+func (p *WorkerPool) GetRateLimit(ctx context.Context, rlRequest *RateLimitReq, reqState RateLimitReqState) (_ *RateLimitResp, err error) {
 	// Delegate request to assigned channel based on request key.
 	worker := p.getWorker(rlRequest.HashKey())
 	queueGauge := metricWorkerQueue.WithLabelValues("GetRateLimit", worker.name)

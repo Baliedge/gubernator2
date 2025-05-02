@@ -110,6 +110,15 @@ var (
 			0.99: 0.001,
 		},
 	}, []string{"peerAddr"})
+	metricUpdatePeerGlobalsSize = prometheus.NewSummary(prometheus.SummaryOpts{
+		Name: "gubernator_updatepeerglobals_item_count",
+		Help: "The count of items in UpdatePeerGlobals requests",
+		Objectives: map[float64]float64{
+			0.50: 0.01,
+			0.99: 0.001,
+			1.0:  0.001,
+		},
+	})
 )
 
 // NewV1Instance instantiate a single instance of a gubernator peer and register this
@@ -179,7 +188,11 @@ func (s *V1Instance) Close() (err error) {
 // GetRateLimits is the public interface used by clients to request rate limits from the system. If the
 // rate limit `Name` and `UniqueKey` is not owned by this instance, then we forward the request to the
 // peer that does.
-func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (*GetRateLimitsResp, error) {
+func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ *GetRateLimitsResp, err error) {
+	ctx = tracing.StartScope(ctx, trace.WithAttributes(
+		attribute.Int("item.count", len(r.Requests)),
+	))
+	defer func() { tracing.EndScope(ctx, err) }()
 	funcTimer := prometheus.NewTimer(metricFuncTimeDuration.WithLabelValues("V1Instance.GetRateLimits"))
 	defer funcTimer.ObserveDuration()
 	metricConcurrentChecks.Inc()
@@ -424,6 +437,7 @@ func (s *V1Instance) getGlobalRateLimit(ctx context.Context, req *RateLimitReq) 
 // be called by a peer who is the owner of a global rate limit.
 func (s *V1Instance) UpdatePeerGlobals(ctx context.Context, r *UpdatePeerGlobalsReq) (*UpdatePeerGlobalsResp, error) {
 	defer prometheus.NewTimer(metricFuncTimeDuration.WithLabelValues("V1Instance.UpdatePeerGlobals")).ObserveDuration()
+	metricUpdatePeerGlobalsSize.Observe(float64(len(r.Globals)))
 	now := MillisecondNow()
 	for _, g := range r.Globals {
 		item := &CacheItem{
@@ -460,6 +474,8 @@ func (s *V1Instance) UpdatePeerGlobals(ctx context.Context, r *UpdatePeerGlobals
 
 // GetPeerRateLimits is called by other peers to get the rate limits owned by this peer.
 func (s *V1Instance) GetPeerRateLimits(ctx context.Context, r *GetPeerRateLimitsReq) (resp *GetPeerRateLimitsResp, err error) {
+	ctx = tracing.StartScope(ctx)
+	defer func() { tracing.EndScope(ctx, err) }()
 	defer prometheus.NewTimer(metricFuncTimeDuration.WithLabelValues("V1Instance.GetPeerRateLimits")).ObserveDuration()
 	if len(r.Requests) > maxBatchSize {
 		err := fmt.Errorf("'PeerRequest.rate_limits' list too large; max size is '%d'", maxBatchSize)
@@ -497,7 +513,7 @@ func (s *V1Instance) GetPeerRateLimits(ctx context.Context, r *GetPeerRateLimits
 	// Fan out requests.
 	fan := syncutil.NewFanOut(s.conf.Workers)
 	for idx, req := range r.Requests {
-		fan.Run(func(in interface{}) error {
+		fan.Run(func(in any) error {
 			rin := in.(reqIn)
 			// Extract the propagated context from the metadata in the request
 			prop := propagation.TraceContext{}
@@ -736,7 +752,7 @@ func (s *V1Instance) SetPeers(peerInfo []PeerInfo) {
 
 	var wg syncutil.WaitGroup
 	for _, p := range shutdownPeers {
-		wg.Run(func(obj interface{}) error {
+		wg.Run(func(obj any) error {
 			pc := obj.(*PeerClient)
 			err := pc.Shutdown(ctx)
 			if err != nil {
@@ -794,10 +810,13 @@ func (s *V1Instance) Describe(ch chan<- *prometheus.Desc) {
 	metricGetRateLimitCounter.Describe(ch)
 	metricOverLimitCounter.Describe(ch)
 	metricWorkerQueue.Describe(ch)
+	metricUpdatePeerGlobalsSize.Describe(ch)
 	s.global.metricBroadcastDuration.Describe(ch)
+	s.global.metricBroadcastErrors.Describe(ch)
 	s.global.metricGlobalQueueLength.Describe(ch)
 	s.global.metricGlobalSendDuration.Describe(ch)
 	s.global.metricGlobalSendQueueLength.Describe(ch)
+	s.global.metricGlobalSendErrors.Describe(ch)
 }
 
 // Collect fetches metrics from the server for use by prometheus
@@ -812,10 +831,13 @@ func (s *V1Instance) Collect(ch chan<- prometheus.Metric) {
 	metricGetRateLimitCounter.Collect(ch)
 	metricOverLimitCounter.Collect(ch)
 	metricWorkerQueue.Collect(ch)
+	metricUpdatePeerGlobalsSize.Collect(ch)
 	s.global.metricBroadcastDuration.Collect(ch)
+	s.global.metricBroadcastErrors.Collect(ch)
 	s.global.metricGlobalQueueLength.Collect(ch)
 	s.global.metricGlobalSendDuration.Collect(ch)
 	s.global.metricGlobalSendQueueLength.Collect(ch)
+	s.global.metricGlobalSendErrors.Collect(ch)
 }
 
 // HasBehavior returns true if the provided behavior is set
