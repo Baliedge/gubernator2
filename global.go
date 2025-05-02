@@ -30,16 +30,17 @@ import (
 // globalManager manages async hit queue and updates peers in
 // the cluster periodically when a global rate limit we own updates.
 type globalManager struct {
-	hitsQueue                   chan *RateLimitReq
-	broadcastQueue              chan *RateLimitReq
-	wg                          syncutil.WaitGroup
-	conf                        BehaviorConfig
-	log                         FieldLogger
-	instance                    *V1Instance // TODO circular import? V1Instance also holds a reference to globalManager
-	metricGlobalSendDuration    prometheus.Summary
-	metricGlobalSendQueueLength prometheus.Gauge
-	metricBroadcastDuration     prometheus.Summary
-	metricGlobalQueueLength     prometheus.Gauge
+	hitsQueue                      chan *RateLimitReq
+	broadcastQueue                 chan *RateLimitReq
+	wg                             syncutil.WaitGroup
+	conf                           BehaviorConfig
+	log                            FieldLogger
+	instance                       *V1Instance // TODO circular import? V1Instance also holds a reference to globalManager
+	metricGlobalSendDuration       prometheus.Summary
+	metricGlobalSendQueueLength    prometheus.Gauge
+	metricBroadcastDuration        prometheus.Summary
+	metricGlobalQueueLength        prometheus.Gauge
+	metricDebugUpdateGlobalsErrors *prometheus.CounterVec
 }
 
 func newGlobalManager(conf BehaviorConfig, instance *V1Instance) *globalManager {
@@ -67,6 +68,9 @@ func newGlobalManager(conf BehaviorConfig, instance *V1Instance) *globalManager 
 			Name: "gubernator_global_queue_length",
 			Help: "The count of requests queued up for global broadcast.  This is only used for GetRateLimit requests using global behavior.",
 		}),
+		metricDebugUpdateGlobalsErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gubernator_debug_update_globals_errors",
+		}, []string{"key"}),
 	}
 	gm.runAsyncHits()
 	gm.runBroadcasts()
@@ -274,7 +278,7 @@ func (gm *globalManager) broadcastPeers(ctx context.Context, updates map[string]
 			continue
 		}
 
-		fan.Run(func(in interface{}) error {
+		fan.Run(func(in any) error {
 			peer := in.(*PeerClient)
 			ctx, cancel := context.WithTimeout(ctx, gm.conf.GlobalTimeout)
 			_, err := peer.UpdatePeerGlobals(ctx, &req)
@@ -283,8 +287,22 @@ func (gm *globalManager) broadcastPeers(ctx context.Context, updates map[string]
 			if err != nil {
 				// Only log if it's an unknown error
 				if !errors.Is(err, context.Canceled) && errors.Is(err, context.DeadlineExceeded) {
-					gm.log.WithError(err).Errorf("while broadcasting global updates to '%s'", peer.Info().GRPCAddress)
+					gm.log.WithField("batch_size", len(req.Globals)).WithError(err).
+						Errorf("while broadcasting global updates to '%s'", peer.Info().GRPCAddress)
 				}
+
+				// DEBUG
+				for _, g := range req.Globals {
+					gm.metricDebugUpdateGlobalsErrors.WithLabelValues(g.Key)
+					errMsg := g.Status.Error
+					if errMsg != "" {
+						gm.log.WithFields(logrus.Fields{
+							"key":   g.Key,
+							"error": errMsg,
+						}).Warn("Error in global update")
+					}
+				}
+
 			}
 			return nil
 		}, peer)

@@ -798,6 +798,7 @@ func (s *V1Instance) Describe(ch chan<- *prometheus.Desc) {
 	s.global.metricGlobalQueueLength.Describe(ch)
 	s.global.metricGlobalSendDuration.Describe(ch)
 	s.global.metricGlobalSendQueueLength.Describe(ch)
+	s.global.metricDebugUpdateGlobalsErrors.Describe(ch)
 }
 
 // Collect fetches metrics from the server for use by prometheus
@@ -816,6 +817,7 @@ func (s *V1Instance) Collect(ch chan<- prometheus.Metric) {
 	s.global.metricGlobalQueueLength.Collect(ch)
 	s.global.metricGlobalSendDuration.Collect(ch)
 	s.global.metricGlobalSendQueueLength.Collect(ch)
+	s.global.metricDebugUpdateGlobalsErrors.Collect(ch)
 }
 
 // HasBehavior returns true if the provided behavior is set
