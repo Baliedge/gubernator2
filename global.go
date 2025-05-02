@@ -18,10 +18,12 @@ package gubernator
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/mailgun/holster/v4/syncutil"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -170,14 +172,22 @@ func (gm *globalManager) sendHits(hits map[string]*RateLimitReq) {
 	fan := syncutil.NewFanOut(gm.conf.GlobalPeerRequestsConcurrency)
 	// Send the rate limit requests to their respective owning peers.
 	for _, p := range peerRequests {
-		fan.Run(func(in interface{}) error {
+		fan.Run(func(in any) error {
 			p := in.(*pair)
 			ctx, cancel := context.WithTimeout(context.Background(), gm.conf.GlobalTimeout)
 			_, err := p.client.GetPeerRateLimits(ctx, &p.req)
 			cancel()
 
 			if err != nil {
-				gm.log.WithError(err).
+				var firstHit string
+				if len(p.req.Requests) > 0 {
+					firstHit = fmt.Sprintf("%s:%s", p.req.Requests[0].Name, p.req.Requests[0].UniqueKey)
+				}
+				gm.log.WithFields(logrus.Fields{
+					"peer":      p.client.Info().GRPCAddress,
+					"hit_count": len(p.req.Requests),
+					"first_hit": firstHit,
+				}).WithError(err).
 					Errorf("while sending global hits to '%s'", p.client.Info().GRPCAddress)
 			}
 			return nil
