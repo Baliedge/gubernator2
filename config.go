@@ -104,6 +104,10 @@ type Config struct {
 	// using multi data center support.
 	DataCenter string
 
+	// (Optional) This is the AdvertiseAddr of the instance. This value will be used to
+	// find the peer that is owned by this instance
+	AdvertiseAddr string
+
 	// (Optional) A Logger which implements the declared logger interface (typically *logrus.Entry)
 	Logger FieldLogger
 
@@ -145,7 +149,11 @@ func (c *Config) SetDefaults() error {
 
 	setter.SetDefault(&c.CacheSize, 50_000)
 	setter.SetDefault(&c.Workers, runtime.NumCPU())
-	setter.SetDefault(&c.Logger, logrus.New().WithField("category", "gubernator"))
+	setter.SetDefault(&c.InstanceID, GetInstanceID())
+	setter.SetDefault(&c.Logger, logrus.New().WithFields(logrus.Fields{
+		"instance": c.InstanceID,
+		"category": "gubernator",
+	}))
 
 	if c.CacheFactory == nil {
 		c.CacheFactory = func(maxSize int) Cache {
@@ -333,7 +341,7 @@ func SetupDaemonConfig(logger *logrus.Logger, configFile io.Reader) (DaemonConfi
 	setter.SetDefault(&conf.DataCenter, os.Getenv("GUBER_DATA_CENTER"), "")
 	setter.SetDefault(&conf.MetricFlags, getEnvMetricFlags(log, "GUBER_METRIC_FLAGS"))
 
-	choices := []string{"member-list", "k8s", "etcd", "dns"}
+	choices := []string{"member-list", "k8s", "etcd", "dns", "none"}
 	setter.SetDefault(&conf.PeerDiscoveryType, os.Getenv("GUBER_PEER_DISCOVERY_TYPE"), "member-list")
 	if !slice.ContainsString(conf.PeerDiscoveryType, choices, nil) {
 		return conf, fmt.Errorf("GUBER_PEER_DISCOVERY_TYPE is invalid; choices are [%s]`", strings.Join(choices, ","))
@@ -407,6 +415,7 @@ func SetupDaemonConfig(logger *logrus.Logger, configFile io.Reader) (DaemonConfi
 
 	setter.SetDefault(&conf.MemberListPoolConf.Advertise.GRPCAddress, os.Getenv("GUBER_MEMBERLIST_ADVERTISE_ADDRESS"), conf.AdvertiseAddress)
 	setter.SetDefault(&conf.MemberListPoolConf.MemberListAddress, os.Getenv("GUBER_MEMBERLIST_ADDRESS"), fmt.Sprintf("%s:7946", advAddr))
+	setter.SetDefault(&conf.MemberListPoolConf.MemberListBindAddress, os.Getenv("GUBER_MEMBERLIST_BIND_ADDRESS"))
 	setter.SetDefault(&conf.MemberListPoolConf.KnownNodes, getEnvSlice("GUBER_MEMBERLIST_KNOWN_NODES"), []string{})
 	setter.SetDefault(&conf.MemberListPoolConf.Advertise.DataCenter, conf.DataCenter)
 	setter.SetDefault(&conf.MemberListPoolConf.EncryptionConfig.SecretKeys, getEnvSlice("GUBER_MEMBERLIST_SECRET_KEYS"), []string{})

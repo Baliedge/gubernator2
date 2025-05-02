@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gubernator
+  name: {{ include "gubernator.fullname" . }}
   labels:
   {{- include "gubernator.labels" . | nindent 4 }}
   annotations:
@@ -32,10 +32,21 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.gubernator.affinity }}
+      affinity:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.gubernator.tolerations }}
+      tolerations:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: gubernator
           env:
           {{- include "gubernator.env" . | nindent 10 }}
+          {{- with .Values.gubernator.extraEnv }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
           image: {{ .Values.gubernator.image.repository }}:{{ .Values.gubernator.image.tag | default .Chart.AppVersion }}
           imagePullPolicy: {{ .Values.gubernator.image.pullPolicy }}
           ports:
@@ -43,21 +54,6 @@ spec:
               containerPort: {{ include "gubernator.grpc.port" .  }}
             - name: http
               containerPort: {{ include "gubernator.http.port" .  }}
-          livenessProbe:
-            failureThreshold: 2
-            tcpSocket:
-              port: {{ include "gubernator.grpc.port" . }}
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 5
-          readinessProbe:
-            failureThreshold: 20
-            tcpSocket:
-              port: {{ include "gubernator.grpc.port" . }}
-            periodSeconds: 1
-            successThreshold: 1
-            timeoutSeconds: 1
           {{- with .Values.gubernator.resources }}
           resources:
           {{- toYaml . | nindent 12 }}

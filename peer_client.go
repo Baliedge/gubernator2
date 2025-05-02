@@ -55,6 +55,7 @@ type PeerClient struct {
 	queue       chan *request
 	queueClosed atomic.Bool
 	lastErrs    *collections.LRUCache
+	isShutdown  atomic.Bool
 
 	wgMutex sync.RWMutex
 	wg      sync.WaitGroup // Monitor the number of in-flight requests. GUARDED_BY(wgMutex)
@@ -303,12 +304,14 @@ func (c *PeerClient) runBatch() {
 			queue = append(queue, r)
 			// Send the queue if we reached our batch limit
 			if len(queue) >= c.conf.Behavior.BatchLimit {
-				c.conf.Log.WithContext(ctx).
-					WithFields(logrus.Fields{
-						"queueLen":   len(queue),
-						"batchLimit": c.conf.Behavior.BatchLimit,
-					}).
-					Debug("runBatch() reached batch limit")
+				if c.conf.Log != nil {
+					c.conf.Log.WithContext(ctx).
+						WithFields(logrus.Fields{
+							"queueLen":   len(queue),
+							"batchLimit": c.conf.Behavior.BatchLimit,
+						}).
+						Debug("runBatch() reached batch limit")
+				}
 				ref := queue
 				queue = nil
 				go c.sendBatch(ctx, ref)
@@ -406,6 +409,10 @@ func (c *PeerClient) sendBatch(ctx context.Context, queue []*request) {
 // Shutdown waits until all outstanding requests have finished or the context is cancelled.
 // Then it closes the grpc connection.
 func (c *PeerClient) Shutdown(ctx context.Context) error {
+	if !c.isShutdown.CompareAndSwap(false, true) {
+		return nil
+	}
+
 	// ensure we don't leak goroutines, even if the Shutdown times out
 	defer c.conn.Close()
 

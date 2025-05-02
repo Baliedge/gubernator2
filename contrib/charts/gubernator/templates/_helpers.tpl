@@ -51,7 +51,7 @@ Common labels
 {{- with .Values.gubernator.labels }}
 {{- toYaml . }}
 {{- end }}
-app: gubernator
+app: {{ include "gubernator.fullname" . }}
 helm.sh/chart: {{ include "gubernator.chart" . }}
 {{ include "gubernator.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
@@ -114,6 +114,6 @@ HTTP Port
 {{- end }}
 {{- if .Values.gubernator.server.grpc.maxConnAgeSeconds }}
 - name: GUBER_GRPC_MAX_CONN_AGE_SEC
-  value: {{ .Values.gubernator.server.grpc.maxConnAgeSeconds }}
+  value: "{{ .Values.gubernator.server.grpc.maxConnAgeSeconds }}"
 {{- end }}
 {{- end }}

@@ -88,6 +88,10 @@ func (s *Daemon) Start(ctx context.Context) error {
 		"category": "gubernator",
 	}))
 
+	if s.conf.PeerDiscoveryType == "k8s" && s.conf.K8PoolConf.PodIP != "" && s.conf.K8PoolConf.PodPort != "" {
+		s.conf.AdvertiseAddress = net.JoinHostPort(s.conf.K8PoolConf.PodIP, s.conf.K8PoolConf.PodPort)
+	}
+
 	s.promRegister = prometheus.NewRegistry()
 
 	// The LRU cache for storing rate limits.
@@ -157,6 +161,7 @@ func (s *Daemon) Start(ctx context.Context) error {
 		Workers:       s.conf.Workers,
 		InstanceID:    s.conf.InstanceID,
 		EventChannel:  s.conf.EventChannel,
+		AdvertiseAddr: s.conf.AdvertiseAddress,
 	}
 
 	s.V1Server, err = NewV1Instance(s.instanceConf)
@@ -241,6 +246,10 @@ func (s *Daemon) Start(ctx context.Context) error {
 		if err != nil {
 			return errors.Wrap(err, "while creating member list pool")
 		}
+	case "none":
+		// In `none` discovery mode, daemon.SetPeers must be explicitly
+		// called to add peer to the gubernator cluster
+		s.log.Warn("Discovery type is none")
 	}
 
 	// We override the default Marshaller to enable the `UseProtoNames` option.
@@ -402,7 +411,7 @@ func (s *Daemon) SetPeers(in []PeerInfo) {
 	copy(peers, in)
 
 	for i, p := range peers {
-		if s.conf.GRPCListenAddress == p.GRPCAddress {
+		if s.conf.AdvertiseAddress == p.GRPCAddress {
 			peers[i].IsOwner = true
 		}
 	}

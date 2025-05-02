@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mailgun/errors"
@@ -31,6 +32,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -49,7 +51,7 @@ type V1Instance struct {
 	peerMutex  sync.RWMutex
 	log        FieldLogger
 	conf       Config
-	isClosed   bool
+	isClosed   atomic.Bool
 	workerPool *WorkerPool
 }
 
@@ -149,16 +151,14 @@ func NewV1Instance(conf Config) (s *V1Instance, err error) {
 }
 
 func (s *V1Instance) Close() (err error) {
-	ctx := context.Background()
-
-	if s.isClosed {
+	if !s.isClosed.CompareAndSwap(false, true) {
 		return nil
 	}
 
 	s.global.Close()
 
 	if s.conf.Loader != nil {
-		err = s.workerPool.Store(ctx)
+		err = s.workerPool.Store(context.Background())
 		if err != nil {
 			s.log.WithError(err).
 				Error("Error in workerPool.Store")
@@ -173,7 +173,6 @@ func (s *V1Instance) Close() (err error) {
 		return errors.Wrap(err, "Error in workerPool.Close")
 	}
 
-	s.isClosed = true
 	return nil
 }
 
@@ -544,6 +543,7 @@ func (s *V1Instance) HealthCheck(ctx context.Context, r *HealthCheckReq) (health
 	span := trace.SpanFromContext(ctx)
 
 	var errs []string
+	ownPeerAddress := ""
 
 	s.peerMutex.RLock()
 	defer s.peerMutex.RUnlock()
@@ -556,6 +556,10 @@ func (s *V1Instance) HealthCheck(ctx context.Context, r *HealthCheckReq) (health
 			span.RecordError(err)
 			errs = append(errs, err.Error())
 		}
+
+		if ownPeerAddress == "" && peer.Info().GRPCAddress == s.conf.AdvertiseAddr {
+			ownPeerAddress = peer.Info().GRPCAddress
+		}
 	}
 
 	// Do the same for region peers
@@ -566,11 +570,17 @@ func (s *V1Instance) HealthCheck(ctx context.Context, r *HealthCheckReq) (health
 			span.RecordError(err)
 			errs = append(errs, err.Error())
 		}
+
+		if ownPeerAddress == "" && peer.Info().GRPCAddress == s.conf.AdvertiseAddr &&
+			peer.Info().DataCenter == s.conf.DataCenter {
+			ownPeerAddress = peer.Info().GRPCAddress
+		}
 	}
 
 	health = &HealthCheckResp{
-		PeerCount: int32(len(localPeers) + len(regionPeers)),
-		Status:    Healthy,
+		PeerCount:        int32(len(localPeers) + len(regionPeers)),
+		Status:           Healthy,
+		AdvertiseAddress: ownPeerAddress,
 	}
 
 	if len(errs) != 0 {
@@ -578,12 +588,35 @@ func (s *V1Instance) HealthCheck(ctx context.Context, r *HealthCheckReq) (health
 		health.Message = strings.Join(errs, "|")
 	}
 
+	if health.AdvertiseAddress == "" {
+		health.Status = UnHealthy
+		health.Message = strings.Join(append(errs, "this instance is not found in the peer list"), "|")
+	}
+
 	span.SetAttributes(
 		attribute.Int64("health.peerCount", int64(health.PeerCount)),
 		attribute.String("health.status", health.Status),
 	)
 
+	s.log.WithFields(map[string]any{
+		"conf.advertiseAddress": s.conf.AdvertiseAddr,
+		"health.peerCount":      int64(health.PeerCount),
+		"health.status":         health.Status,
+	}).Debug("health check")
+
+	if health.Status != Healthy {
+		return nil, status.ErrorProto(&spb.Status{
+			Code:    int32(codes.Unavailable),
+			Message: health.Message,
+		})
+	}
+
 	return health, nil
+}
+
+// LiveCheck simply allows checking if the server is running.
+func (s *V1Instance) LiveCheck(_ context.Context, _ *LiveCheckReq) (health *LiveCheckResp, err error) {
+	return &LiveCheckResp{}, nil
 }
 
 func (s *V1Instance) getLocalRateLimit(ctx context.Context, r *RateLimitReq, reqState RateLimitReqState) (_ *RateLimitResp, err error) {
