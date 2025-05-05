@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/mailgun/holster/v4/syncutil"
+	"github.com/mailgun/holster/v4/tracing"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -246,6 +247,8 @@ func (gm *globalManager) runBroadcasts() {
 
 // broadcastPeers broadcasts global rate limit statuses to all other peers
 func (gm *globalManager) broadcastPeers(ctx context.Context, updates map[string]*RateLimitReq) {
+	ctx = tracing.StartScope(ctx)
+	defer tracing.EndScope(ctx, nil)
 	defer prometheus.NewTimer(gm.metricBroadcastDuration).ObserveDuration()
 	var req UpdatePeerGlobalsReq
 	reqState := RateLimitReqState{IsOwner: false}
@@ -281,6 +284,7 @@ func (gm *globalManager) broadcastPeers(ctx context.Context, updates map[string]
 		fan.Run(func(in any) error {
 			peer := in.(*PeerClient)
 			ctx, cancel := context.WithTimeout(ctx, gm.conf.GlobalTimeout)
+			ctx = tracing.StartNamedScope(ctx, "FanOut")
 			_, err := peer.UpdatePeerGlobals(ctx, &req)
 			cancel()
 
@@ -304,6 +308,7 @@ func (gm *globalManager) broadcastPeers(ctx context.Context, updates map[string]
 				}
 
 			}
+			tracing.EndScope(ctx, err)
 			return nil
 		}, peer)
 	}
