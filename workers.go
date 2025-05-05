@@ -46,6 +46,7 @@ import (
 	"github.com/OneOfOne/xxhash"
 	"github.com/mailgun/holster/v4/errors"
 	"github.com/mailgun/holster/v4/setter"
+	"github.com/mailgun/holster/v4/tracing"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
@@ -262,14 +263,17 @@ func (p *WorkerPool) dispatch(worker *Worker) {
 }
 
 // GetRateLimit sends a GetRateLimit request to worker pool.
-func (p *WorkerPool) GetRateLimit(ctx context.Context, rlRequest *RateLimitReq, reqState RateLimitReqState) (*RateLimitResp, error) {
+func (p *WorkerPool) GetRateLimit(ctx context.Context, rlRequest *RateLimitReq, reqState RateLimitReqState) (_ *RateLimitResp, err error) {
+	ctx = tracing.StartScope(ctx)
+	defer func() { tracing.EndScope(ctx, err) }()
 	// Delegate request to assigned channel based on request key.
 	worker := p.getWorker(rlRequest.HashKey())
 	queueGauge := metricWorkerQueue.WithLabelValues("GetRateLimit", worker.name)
 	queueGauge.Inc()
 	defer queueGauge.Dec()
+	reqCtx := tracing.StartNamedScope(ctx, "Send request")
 	handlerRequest := request{
-		ctx:      ctx,
+		ctx:      reqCtx,
 		resp:     make(chan *response, 1),
 		request:  rlRequest,
 		reqState: reqState,
@@ -279,25 +283,31 @@ func (p *WorkerPool) GetRateLimit(ctx context.Context, rlRequest *RateLimitReq, 
 	select {
 	case worker.getRateLimitRequest <- handlerRequest:
 		// Successfully sent request.
+		tracing.EndScope(reqCtx, nil)
 	case <-ctx.Done():
+		tracing.EndScope(reqCtx, ctx.Err())
 		return nil, ctx.Err()
 	}
 
 	// Wait for response.
+	respCtx := tracing.StartNamedScope(ctx, "Wait for response")
 	select {
 	case handlerResponse := <-handlerRequest.resp:
 		// Successfully read response.
+		tracing.EndScope(respCtx, nil)
 		return handlerResponse.rl, handlerResponse.err
 	case <-ctx.Done():
+		tracing.EndScope(respCtx, ctx.Err())
 		return nil, ctx.Err()
 	}
 }
 
 // Handle request received by worker.
-func (worker *Worker) handleGetRateLimit(ctx context.Context, req *RateLimitReq, reqState RateLimitReqState, cache Cache) (*RateLimitResp, error) {
+func (worker *Worker) handleGetRateLimit(ctx context.Context, req *RateLimitReq, reqState RateLimitReqState, cache Cache) (_ *RateLimitResp, err error) {
+	ctx = tracing.StartScope(ctx)
+	defer func() { tracing.EndScope(ctx, err) }()
 	defer prometheus.NewTimer(metricFuncTimeDuration.WithLabelValues("Worker.handleGetRateLimit")).ObserveDuration()
 	var rlResponse *RateLimitResp
-	var err error
 
 	switch req.Algorithm {
 	case Algorithm_TOKEN_BUCKET:

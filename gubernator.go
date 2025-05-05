@@ -179,7 +179,9 @@ func (s *V1Instance) Close() (err error) {
 // GetRateLimits is the public interface used by clients to request rate limits from the system. If the
 // rate limit `Name` and `UniqueKey` is not owned by this instance, then we forward the request to the
 // peer that does.
-func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (*GetRateLimitsResp, error) {
+func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ *GetRateLimitsResp, err error) {
+	ctx = tracing.StartScope(ctx)
+	defer func() { tracing.EndScope(ctx, err) }()
 	funcTimer := prometheus.NewTimer(metricFuncTimeDuration.WithLabelValues("V1Instance.GetRateLimits"))
 	defer funcTimer.ObserveDuration()
 	metricConcurrentChecks.Inc()

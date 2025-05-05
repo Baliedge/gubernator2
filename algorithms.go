@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/mailgun/holster/v4/clock"
+	"github.com/mailgun/holster/v4/tracing"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
@@ -35,6 +36,8 @@ import (
 
 // Implements token bucket algorithm for rate limiting. https://en.wikipedia.org/wiki/Token_bucket
 func tokenBucket(ctx context.Context, s Store, c Cache, r *RateLimitReq, reqState RateLimitReqState) (resp *RateLimitResp, err error) {
+	ctx = tracing.StartScope(ctx)
+	defer func() { tracing.EndScope(ctx, err) }()
 	tokenBucketTimer := prometheus.NewTimer(metricFuncTimeDuration.WithLabelValues("tokenBucket"))
 	defer tokenBucketTimer.ObserveDuration()
 
