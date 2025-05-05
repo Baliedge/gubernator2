@@ -110,6 +110,24 @@ var (
 			0.99: 0.001,
 		},
 	}, []string{"peerAddr"})
+	metricGetRateLimitSize = prometheus.NewSummary(prometheus.SummaryOpts{
+		Name: "gubernator_getratelimit_item_count",
+		Help: "The count of items in GetRateLimit requests",
+		Objectives: map[float64]float64{
+			0.50: 0.01,
+			0.99: 0.001,
+			1.0:  0.001,
+		},
+	})
+	metricUpdatePeerGlobalsSize = prometheus.NewSummary(prometheus.SummaryOpts{
+		Name: "gubernator_updatepeerglobals_item_count",
+		Help: "The count of items in UpdatePeerGlobals requests",
+		Objectives: map[float64]float64{
+			0.50: 0.01,
+			0.99: 0.001,
+			1.0:  0.001,
+		},
+	})
 )
 
 // NewV1Instance instantiate a single instance of a gubernator peer and register this
@@ -192,6 +210,7 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 		return nil, status.Errorf(codes.OutOfRange,
 			"Requests.RateLimits list too large; max size is '%d'", maxBatchSize)
 	}
+	metricGetRateLimitSize.Observe(float64(len(r.Requests)))
 
 	createdAt := epochMillis(clock.Now())
 	resp := GetRateLimitsResp{
@@ -426,6 +445,7 @@ func (s *V1Instance) getGlobalRateLimit(ctx context.Context, req *RateLimitReq) 
 // be called by a peer who is the owner of a global rate limit.
 func (s *V1Instance) UpdatePeerGlobals(ctx context.Context, r *UpdatePeerGlobalsReq) (*UpdatePeerGlobalsResp, error) {
 	defer prometheus.NewTimer(metricFuncTimeDuration.WithLabelValues("V1Instance.UpdatePeerGlobals")).ObserveDuration()
+	metricUpdatePeerGlobalsSize.Observe(float64(len(r.Globals)))
 	now := MillisecondNow()
 	for _, g := range r.Globals {
 		item := &CacheItem{
@@ -798,6 +818,8 @@ func (s *V1Instance) Describe(ch chan<- *prometheus.Desc) {
 	metricGetRateLimitCounter.Describe(ch)
 	metricOverLimitCounter.Describe(ch)
 	metricWorkerQueue.Describe(ch)
+	metricGetRateLimitSize.Describe(ch)
+	metricUpdatePeerGlobalsSize.Describe(ch)
 	s.global.metricBroadcastDuration.Describe(ch)
 	s.global.metricGlobalQueueLength.Describe(ch)
 	s.global.metricGlobalSendDuration.Describe(ch)
@@ -817,6 +839,8 @@ func (s *V1Instance) Collect(ch chan<- prometheus.Metric) {
 	metricGetRateLimitCounter.Collect(ch)
 	metricOverLimitCounter.Collect(ch)
 	metricWorkerQueue.Collect(ch)
+	metricGetRateLimitSize.Collect(ch)
+	metricUpdatePeerGlobalsSize.Collect(ch)
 	s.global.metricBroadcastDuration.Collect(ch)
 	s.global.metricGlobalQueueLength.Collect(ch)
 	s.global.metricGlobalSendDuration.Collect(ch)
