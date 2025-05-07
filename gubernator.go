@@ -110,9 +110,9 @@ var (
 			0.99: 0.001,
 		},
 	}, []string{"peerAddr"})
-	metricGetRateLimitSize = prometheus.NewSummary(prometheus.SummaryOpts{
-		Name: "gubernator_getratelimit_item_count",
-		Help: "The count of items in GetRateLimit requests",
+	metricGetRateLimitsSize = prometheus.NewSummary(prometheus.SummaryOpts{
+		Name: "gubernator_getratelimits_item_count",
+		Help: "The count of items in GetRateLimits requests",
 		Objectives: map[float64]float64{
 			0.50: 0.01,
 			0.99: 0.001,
@@ -212,7 +212,7 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 		return nil, status.Errorf(codes.OutOfRange,
 			"Requests.RateLimits list too large; max size is '%d'", maxBatchSize)
 	}
-	metricGetRateLimitSize.Observe(float64(len(r.Requests)))
+	metricGetRateLimitsSize.Observe(float64(len(r.Requests)))
 
 	createdAt := epochMillis(clock.Now())
 	resp := GetRateLimitsResp{
@@ -844,7 +844,7 @@ func (s *V1Instance) Describe(ch chan<- *prometheus.Desc) {
 	metricGetRateLimitCounter.Describe(ch)
 	metricOverLimitCounter.Describe(ch)
 	metricWorkerQueue.Describe(ch)
-	metricGetRateLimitSize.Describe(ch)
+	metricGetRateLimitsSize.Describe(ch)
 	metricUpdatePeerGlobalsSize.Describe(ch)
 	s.global.metricBroadcastDuration.Describe(ch)
 	s.global.metricBroadcastErrors.Describe(ch)
@@ -867,7 +867,7 @@ func (s *V1Instance) Collect(ch chan<- prometheus.Metric) {
 	metricGetRateLimitCounter.Collect(ch)
 	metricOverLimitCounter.Collect(ch)
 	metricWorkerQueue.Collect(ch)
-	metricGetRateLimitSize.Collect(ch)
+	metricGetRateLimitsSize.Collect(ch)
 	metricUpdatePeerGlobalsSize.Collect(ch)
 	s.global.metricBroadcastDuration.Collect(ch)
 	s.global.metricBroadcastErrors.Collect(ch)
