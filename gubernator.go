@@ -267,7 +267,7 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 			SetBehavior(&req.Behavior, Behavior_GLOBAL, true)
 		}
 
-		peer, err = s.GetPeer(ctx, key)
+		peer, err = s.GetPeer(reqCtx, key)
 		if err != nil {
 			countError(err, "Error in GetPeer")
 			err = errors.Wrapf(err, "Error in GetPeer, looking up peer that owns rate limit '%s'", key)
@@ -282,19 +282,19 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 		reqState := RateLimitReqState{IsOwner: peer.Info().IsOwner}
 		if reqState.IsOwner {
 			// Apply our rate limit algorithm to the request
-			resp.Responses[i], err = s.getLocalRateLimit(ctx, req, reqState)
+			resp.Responses[i], err = s.getLocalRateLimit(reqCtx, req, reqState)
 			if err != nil {
 				err = errors.Wrapf(err, "Error while apply rate limit for '%s'", key)
-				span := trace.SpanFromContext(ctx)
+				span := trace.SpanFromContext(reqCtx)
 				span.RecordError(err)
 				resp.Responses[i] = &RateLimitResp{Error: err.Error()}
 			}
 		} else {
 			if HasBehavior(req.Behavior, Behavior_GLOBAL) {
-				resp.Responses[i], err = s.getGlobalRateLimit(ctx, req)
+				resp.Responses[i], err = s.getGlobalRateLimit(reqCtx, req)
 				if err != nil {
 					err = errors.Wrap(err, "Error in getGlobalRateLimit")
-					span := trace.SpanFromContext(ctx)
+					span := trace.SpanFromContext(reqCtx)
 					span.RecordError(err)
 					resp.Responses[i] = &RateLimitResp{Error: err.Error()}
 				}
@@ -312,7 +312,7 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 			// Request must be forwarded to peer that owns the key.
 			// Launch remote peer request in goroutine.
 			wg.Add(1)
-			go s.asyncRequest(ctx, &AsyncReq{
+			go s.asyncRequest(reqCtx, &AsyncReq{
 				AsyncCh: asyncCh,
 				Peer:    peer,
 				Req:     req,
