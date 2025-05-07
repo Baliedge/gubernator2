@@ -198,7 +198,9 @@ func (s *V1Instance) Close() (err error) {
 // rate limit `Name` and `UniqueKey` is not owned by this instance, then we forward the request to the
 // peer that does.
 func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ *GetRateLimitsResp, err error) {
-	ctx = tracing.StartScope(ctx)
+	ctx = tracing.StartScope(ctx, trace.WithAttributes(
+		attribute.Int("item.count", len(r.Requests)),
+	))
 	defer func() { tracing.EndScope(ctx, err) }()
 	funcTimer := prometheus.NewTimer(metricFuncTimeDuration.WithLabelValues("V1Instance.GetRateLimits"))
 	defer funcTimer.ObserveDuration()
@@ -221,6 +223,15 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 
 	// For each item in the request body
 	for i, req := range r.Requests {
+		reqCtx := tracing.StartNamedScope(ctx, "Request", trace.WithAttributes(
+			attribute.String("name", req.Name),
+			attribute.String("key", req.UniqueKey),
+			attribute.Int64("hits", req.Hits),
+			attribute.Int64("duration", req.Duration),
+			attribute.Int64("limit", req.Limit),
+			attribute.Int("algorithm", int(req.Algorithm)),
+			attribute.Int("behavior", int(req.Behavior)),
+		))
 		key := req.Name + "_" + req.UniqueKey
 		var peer *PeerClient
 		var err error
@@ -228,11 +239,13 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 		if req.UniqueKey == "" {
 			metricCheckErrorCounter.WithLabelValues("Invalid request").Inc()
 			resp.Responses[i] = &RateLimitResp{Error: "field 'unique_key' cannot be empty"}
+			tracing.EndScope(reqCtx, errors.New(resp.Responses[i].Error))
 			continue
 		}
 		if req.Name == "" {
 			metricCheckErrorCounter.WithLabelValues("Invalid request").Inc()
 			resp.Responses[i] = &RateLimitResp{Error: "field 'namespace' cannot be empty"}
+			tracing.EndScope(reqCtx, errors.New(resp.Responses[i].Error))
 			continue
 		}
 		if req.CreatedAt == nil || *req.CreatedAt == 0 {
@@ -246,6 +259,7 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 			resp.Responses[i] = &RateLimitResp{
 				Error: err.Error(),
 			}
+			tracing.EndScope(reqCtx, errors.New(resp.Responses[i].Error))
 			continue
 		}
 
@@ -260,6 +274,7 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 			resp.Responses[i] = &RateLimitResp{
 				Error: err.Error(),
 			}
+			tracing.EndScope(reqCtx, errors.New(resp.Responses[i].Error))
 			continue
 		}
 
@@ -286,6 +301,11 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 
 				// Inform the client of the owner key of the key
 				resp.Responses[i].Metadata = map[string]string{"owner": peer.Info().GRPCAddress}
+				if resp.Responses[i].Error != "" {
+					tracing.EndScope(reqCtx, errors.New(resp.Responses[i].Error))
+				} else {
+					tracing.EndScope(reqCtx, nil)
+				}
 				continue
 			}
 
@@ -300,6 +320,12 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 				Key:     key,
 				Idx:     i,
 			})
+		}
+
+		if resp.Responses[i].Error != "" {
+			tracing.EndScope(reqCtx, errors.New(resp.Responses[i].Error))
+		} else {
+			tracing.EndScope(reqCtx, nil)
 		}
 	}
 
