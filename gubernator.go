@@ -259,7 +259,7 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 			resp.Responses[i] = &RateLimitResp{
 				Error: err.Error(),
 			}
-			tracing.EndScope(reqCtx, errors.New(resp.Responses[i].Error))
+			tracing.EndScope(reqCtx, err)
 			continue
 		}
 
@@ -274,7 +274,7 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 			resp.Responses[i] = &RateLimitResp{
 				Error: err.Error(),
 			}
-			tracing.EndScope(reqCtx, errors.New(resp.Responses[i].Error))
+			tracing.EndScope(reqCtx, err)
 			continue
 		}
 
@@ -301,7 +301,7 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 
 				// Inform the client of the owner key of the key
 				resp.Responses[i].Metadata = map[string]string{"owner": peer.Info().GRPCAddress}
-				if resp.Responses[i].Error != "" {
+				if resp.Responses[i] != nil && resp.Responses[i].Error != "" {
 					tracing.EndScope(reqCtx, errors.New(resp.Responses[i].Error))
 				} else {
 					tracing.EndScope(reqCtx, nil)
@@ -322,7 +322,7 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 			})
 		}
 
-		if resp.Responses[i].Error != "" {
+		if resp.Responses[i] != nil && resp.Responses[i].Error != "" {
 			tracing.EndScope(reqCtx, errors.New(resp.Responses[i].Error))
 		} else {
 			tracing.EndScope(reqCtx, nil)
@@ -847,9 +847,11 @@ func (s *V1Instance) Describe(ch chan<- *prometheus.Desc) {
 	metricGetRateLimitSize.Describe(ch)
 	metricUpdatePeerGlobalsSize.Describe(ch)
 	s.global.metricBroadcastDuration.Describe(ch)
+	s.global.metricBroadcastErrors.Describe(ch)
 	s.global.metricGlobalQueueLength.Describe(ch)
 	s.global.metricGlobalSendDuration.Describe(ch)
 	s.global.metricGlobalSendQueueLength.Describe(ch)
+	s.global.metricGlobalSendErrors.Describe(ch)
 	s.global.metricDebugUpdateGlobalsErrors.Describe(ch)
 }
 
@@ -868,9 +870,11 @@ func (s *V1Instance) Collect(ch chan<- prometheus.Metric) {
 	metricGetRateLimitSize.Collect(ch)
 	metricUpdatePeerGlobalsSize.Collect(ch)
 	s.global.metricBroadcastDuration.Collect(ch)
+	s.global.metricBroadcastErrors.Collect(ch)
 	s.global.metricGlobalQueueLength.Collect(ch)
 	s.global.metricGlobalSendDuration.Collect(ch)
 	s.global.metricGlobalSendQueueLength.Collect(ch)
+	s.global.metricGlobalSendErrors.Collect(ch)
 	s.global.metricDebugUpdateGlobalsErrors.Collect(ch)
 }
 

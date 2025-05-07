@@ -39,7 +39,9 @@ type globalManager struct {
 	instance                       *V1Instance // TODO circular import? V1Instance also holds a reference to globalManager
 	metricGlobalSendDuration       prometheus.Summary
 	metricGlobalSendQueueLength    prometheus.Gauge
+	metricGlobalSendErrors         prometheus.Counter
 	metricBroadcastDuration        prometheus.Summary
+	metricBroadcastErrors          prometheus.Counter
 	metricGlobalQueueLength        prometheus.Gauge
 	metricDebugUpdateGlobalsErrors *prometheus.CounterVec
 }
@@ -60,10 +62,18 @@ func newGlobalManager(conf BehaviorConfig, instance *V1Instance) *globalManager 
 			Name: "gubernator_global_send_queue_length",
 			Help: "The count of requests queued up for global broadcast.  This is only used for GetRateLimit requests using global behavior.",
 		}),
+		metricGlobalSendErrors: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "gubernator_global_send_errors",
+			Help: "The count of errors during global send to owning peer",
+		}),
 		metricBroadcastDuration: prometheus.NewSummary(prometheus.SummaryOpts{
 			Name:       "gubernator_broadcast_duration",
 			Help:       "The duration of GLOBAL broadcasts to peers in seconds.",
 			Objectives: map[float64]float64{0.5: 0.05, 0.99: 0.001},
+		}),
+		metricBroadcastErrors: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "gubernator_broadcast_errors",
+			Help: "The count of errors during UpdatePeerGlobals",
 		}),
 		metricGlobalQueueLength: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "gubernator_global_queue_length",
@@ -184,6 +194,9 @@ func (gm *globalManager) sendHits(hits map[string]*RateLimitReq) {
 			cancel()
 
 			if err != nil {
+				gm.metricGlobalSendErrors.Inc()
+
+				// DEBUG
 				var firstHit string
 				if len(p.req.Requests) > 0 {
 					firstHit = fmt.Sprintf("%s:%s", p.req.Requests[0].Name, p.req.Requests[0].UniqueKey)
@@ -289,6 +302,7 @@ func (gm *globalManager) broadcastPeers(ctx context.Context, updates map[string]
 			cancel()
 
 			if err != nil {
+				gm.metricBroadcastErrors.Inc()
 				// Only log if it's an unknown error
 				if !errors.Is(err, context.Canceled) && errors.Is(err, context.DeadlineExceeded) {
 					gm.log.WithField("batch_size", len(req.Globals)).WithError(err).
