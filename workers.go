@@ -202,6 +202,8 @@ func (p *WorkerPool) dispatch(worker *Worker) {
 				logrus.Error("workerPool worker stopped because channel closed")
 				return
 			}
+			span := trace.SpanFromContext(req.ctx)
+			span.AddEvent("Dispatch getRateLimitRequest")
 
 			resp := new(response)
 			resp.rl, resp.err = worker.handleGetRateLimit(req.ctx, req.request, req.reqState, worker.cache)
@@ -241,6 +243,8 @@ func (p *WorkerPool) dispatch(worker *Worker) {
 				logrus.Error("workerPool worker stopped because channel closed")
 				return
 			}
+			span := trace.SpanFromContext(req.ctx)
+			span.AddEvent("Dispatch addCacheItemRequest")
 
 			worker.handleAddCacheItem(req, worker.cache)
 			metricCommandCounter.WithLabelValues(worker.name, "AddCacheItem").Inc()
@@ -271,7 +275,7 @@ func (p *WorkerPool) GetRateLimit(ctx context.Context, rlRequest *RateLimitReq, 
 	queueGauge := metricWorkerQueue.WithLabelValues("GetRateLimit", worker.name)
 	queueGauge.Inc()
 	defer queueGauge.Dec()
-	reqCtx := tracing.StartNamedScope(ctx, "Send request")
+	reqCtx := tracing.StartNamedScope(ctx, "Send getRateLimitRequest")
 	handlerRequest := request{
 		ctx:      reqCtx,
 		resp:     make(chan *response, 1),
@@ -553,9 +557,10 @@ func (p *WorkerPool) AddCacheItem(ctx context.Context, key string, item *CacheIt
 	queueGauge := metricWorkerQueue.WithLabelValues("AddCacheItem", worker.name)
 	queueGauge.Inc()
 	defer queueGauge.Dec()
+	reqCtx := tracing.StartNamedScope(ctx, "Send addCacheItemRequest")
 	respChan := make(chan workerAddCacheItemResponse)
 	req := workerAddCacheItemRequest{
-		ctx:      ctx,
+		ctx:      reqCtx,
 		response: respChan,
 		item:     item,
 	}
@@ -563,18 +568,23 @@ func (p *WorkerPool) AddCacheItem(ctx context.Context, key string, item *CacheIt
 	select {
 	case worker.addCacheItemRequest <- req:
 		// Successfully sent request.
+		tracing.EndScope(reqCtx, nil)
+		respCtx := tracing.StartNamedScope(ctx, "Wait for response")
 		select {
 		case <-respChan:
 			// Successfully received response.
+			tracing.EndScope(respCtx, nil)
 			return nil
 
 		case <-ctx.Done():
 			// Context canceled.
+			tracing.EndScope(respCtx, ctx.Err())
 			return ctx.Err()
 		}
 
 	case <-ctx.Done():
 		// Context canceled.
+		tracing.EndScope(reqCtx, ctx.Err())
 		return ctx.Err()
 	}
 }
