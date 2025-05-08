@@ -224,13 +224,13 @@ func (s *V1Instance) GetRateLimits(ctx context.Context, r *GetRateLimitsReq) (_ 
 	// For each item in the request body
 	for i, req := range r.Requests {
 		reqCtx := tracing.StartNamedScope(ctx, "Request", trace.WithAttributes(
-			attribute.String("name", req.Name),
-			attribute.String("key", req.UniqueKey),
-			attribute.Int64("hits", req.Hits),
-			attribute.Int64("duration", req.Duration),
-			attribute.Int64("limit", req.Limit),
-			attribute.Int("algorithm", int(req.Algorithm)),
-			attribute.Int("behavior", int(req.Behavior)),
+			attribute.String("ratelimit.name", req.Name),
+			attribute.String("ratelimit.key", req.UniqueKey),
+			attribute.Int64("ratelimit.hits", req.Hits),
+			attribute.Int64("ratelimit.duration", req.Duration),
+			attribute.Int64("ratelimit.limit", req.Limit),
+			attribute.Int("ratelimit.algorithm", int(req.Algorithm)),
+			attribute.Int("ratelimit.behavior", int(req.Behavior)),
 		))
 		key := req.Name + "_" + req.UniqueKey
 		var peer *PeerClient
