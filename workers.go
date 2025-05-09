@@ -49,6 +49,7 @@ import (
 	"github.com/mailgun/holster/v4/tracing"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -203,7 +204,10 @@ func (p *WorkerPool) dispatch(worker *Worker) {
 				return
 			}
 			span := trace.SpanFromContext(req.ctx)
-			span.AddEvent("Dispatch getRateLimitRequest")
+			span.AddEvent("log", trace.WithAttributes(
+				attribute.String("log.message", "Dispatch getRateLimitRequest"),
+				attribute.String("log.severity", "INFO"),
+			))
 
 			resp := new(response)
 			resp.rl, resp.err = worker.handleGetRateLimit(req.ctx, req.request, req.reqState, worker.cache)
@@ -244,7 +248,10 @@ func (p *WorkerPool) dispatch(worker *Worker) {
 				return
 			}
 			span := trace.SpanFromContext(req.ctx)
-			span.AddEvent("Dispatch addCacheItemRequest")
+			span.AddEvent("log", trace.WithAttributes(
+				attribute.String("log.message", "Dispatch addCacheItemRequests"),
+				attribute.String("log.severity", "INFO"),
+			))
 
 			worker.handleAddCacheItem(req, worker.cache)
 			metricCommandCounter.WithLabelValues(worker.name, "AddCacheItem").Inc()

@@ -301,6 +301,7 @@ func (gm *globalManager) broadcastPeers(ctx context.Context, updates map[string]
 			ctx, cancel := context.WithTimeout(ctx, gm.conf.GlobalTimeout)
 			ctx = tracing.StartNamedScope(ctx, "FanOut", trace.WithAttributes(
 				attribute.Int("num_items", len(req.Globals)),
+				attribute.String("peer", peer.Info().GRPCAddress),
 			))
 			_, err := peer.UpdatePeerGlobals(ctx, &req)
 			cancel()
