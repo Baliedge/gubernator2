@@ -25,6 +25,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -297,7 +299,9 @@ func (gm *globalManager) broadcastPeers(ctx context.Context, updates map[string]
 		fan.Run(func(in any) error {
 			peer := in.(*PeerClient)
 			ctx, cancel := context.WithTimeout(ctx, gm.conf.GlobalTimeout)
-			ctx = tracing.StartNamedScope(ctx, "FanOut")
+			ctx = tracing.StartNamedScope(ctx, "FanOut", trace.WithAttributes(
+				attribute.Int("num_items", len(req.Globals)),
+			))
 			_, err := peer.UpdatePeerGlobals(ctx, &req)
 			cancel()
 
