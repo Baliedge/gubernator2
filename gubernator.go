@@ -29,6 +29,7 @@ import (
 	"github.com/mailgun/holster/v4/syncutil"
 	"github.com/mailgun/holster/v4/tracing"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -710,6 +711,14 @@ func (s *V1Instance) getLocalRateLimit(ctx context.Context, r *RateLimitReq, req
 // SetPeers replaces the peers and shuts down all the previous peers.
 // TODO this should return an error if we failed to connect to any of the new peers
 func (s *V1Instance) SetPeers(peerInfo []PeerInfo) {
+	fields := logrus.Fields{
+		"election.peer_count": len(peerInfo),
+	}
+	if len(peerInfo) > 0 {
+		fields["leader"] = peerInfo[0].GRPCAddress
+	}
+	s.log.WithFields(fields).Info("gubernator.SetPeers()")
+
 	localPicker := s.conf.LocalPicker.New()
 	regionPicker := s.conf.RegionPicker.New()
 
